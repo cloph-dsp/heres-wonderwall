@@ -9,7 +9,7 @@ class AndroidBridge(
     private val app: Application,
     private val onPickAudio: () -> Unit,
     private val onStartRecording: () -> Unit,
-    private val onStopRecording: (String) -> Unit,
+    val onStopRecording: (String) -> Unit,
     private val onCacheAnalysis: (JSONObject) -> Unit,
     private val onShare: (String, String) -> Unit,
     private val onClearCache: () -> Unit = {},
