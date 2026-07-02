@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -26,7 +27,6 @@ import com.wonderwall.app.bridge.AndroidBridge
 import com.wonderwall.app.data.AppDatabase
 import com.wonderwall.app.data.CachedAnalysis
 import com.wonderwall.app.ui.screens.MyChordsScreen
-import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
@@ -168,7 +168,6 @@ class MainActivity : ComponentActivity() {
             prepare()
             start()
             mediaRecorder = this
-            recordingFile = File(cacheDir, "recording_temp.mp4")
         }
     }
 
@@ -184,7 +183,7 @@ class MainActivity : ComponentActivity() {
     // -- Storage --------------------------------------------------------------
 
     private fun cacheAnalysis(json: JSONObject) {
-        launch {
+        lifecycleScope.launch {
             db.analysisDao().upsert(
                 CachedAnalysis(
                     videoId = json.optString("videoId", ""),
