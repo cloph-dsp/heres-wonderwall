@@ -5,33 +5,35 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.remember
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
+import androidx.navigation.NavHost
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import com.wonderwall.app.bridge.AndroidBridge
+import com.wonderwall.app.data.AppDatabase
+import com.wonderwall.app.data.CachedAnalysis
+import com.wonderwall.app.ui.screens.MyChordsScreen
+import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WonderwallWebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var mediaRecorder: MediaRecorder? = null
-    private var recordingFile: File? = null
 
     // File picker (for audio upload)
     private val audioPickerLauncher = registerForActivityResult(
@@ -59,6 +61,8 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> /* retry the pending action */ }
 
+    private val db: AppDatabase get() = (application as WonderwallApp).database
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -66,29 +70,50 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
 
         setContent {
+            val navController = rememberNavController()
             val bridge = remember {
                 AndroidBridge(
                     app = application,
                     onPickAudio = ::pickAudio,
                     onRecordAudio = ::requestRecord,
-                    onCacheAnalysis = ::cacheAnalysis,
+                    onCacheAnalysis = { json -> cacheAnalysis(json) },
                     onShare = ::share,
                 )
             }
 
-            Scaffold(modifier = Modifier.fillMaxSize()) { pad ->
-                AndroidView(
-                    factory = { ctx ->
-                        WonderwallWebView(ctx).also { wv ->
-                            webView = wv
-                            wv.addJavascriptInterface(bridge, "AndroidBridge")
+            NavHost(navController, startDestination = "web") {
+                composable("web") {
+                    Scaffold(
+                        floatingActionButton = {
+                            FloatingActionButton(
+                                onClick = { navController.navigate("my-chords") },
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            ) {
+                                Text("♪", style = MaterialTheme.typography.titleLarge)
+                            }
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(pad),
-                    update = { /* WebView chameleon — no updates needed */ }
-                )
+                    ) { pad ->
+                        AndroidView(
+                            factory = { ctx ->
+                                WonderwallWebView(ctx).also { wv ->
+                                    webView = wv
+                                    wv.addJavascriptInterface(bridge, "AndroidBridge")
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(pad),
+                        )
+                    }
+                }
+                composable("my-chords") {
+                    MyChordsScreen(
+                        onOpenAnalysis = { videoId ->
+                            webView.loadUrl(WonderwallWebView.targetUrl + "/analyze/" + videoId)
+                            navController.popBackStack()
+                        }
+                    )
+                }
             }
         }
     }
@@ -159,7 +184,18 @@ class MainActivity : ComponentActivity() {
     // -- Storage --------------------------------------------------------------
 
     private fun cacheAnalysis(json: JSONObject) {
-        // TODO: store to Room DB
+        launch {
+            db.analysisDao().upsert(
+                CachedAnalysis(
+                    videoId = json.optString("videoId", ""),
+                    title = json.optString("title", "Unknown"),
+                    artist = json.optString("artist", ""),
+                    chordsJson = json.optString("chords", "[]"),
+                    key = json.optString("key", "?"),
+                    bpm = json.optDouble("bpm", 0.0).toFloat(),
+                )
+            )
+        }
     }
 
     // -- Share ----------------------------------------------------------------
