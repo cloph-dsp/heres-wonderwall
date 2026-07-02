@@ -27,6 +27,8 @@ import com.wonderwall.app.bridge.AndroidBridge
 import com.wonderwall.app.data.AppDatabase
 import com.wonderwall.app.data.CachedAnalysis
 import com.wonderwall.app.ui.screens.MyChordsScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
