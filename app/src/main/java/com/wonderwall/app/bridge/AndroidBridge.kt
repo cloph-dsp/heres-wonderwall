@@ -1,9 +1,8 @@
 package com.wonderwall.app.bridge
 
 import android.app.Application
-import android.content.Context
-import android.net.Uri
 import android.webkit.JavascriptInterface
+import com.wonderwall.app.service.AnalysisService
 import org.json.JSONObject
 
 /**
@@ -61,5 +60,22 @@ class AndroidBridge(
     @JavascriptInterface
     fun shareImage(base64Png: String, title: String) {
         onShare(base64Png, title)
+    }
+
+    // -- Notifications --------------------------------------------------------
+
+    @JavascriptInterface
+    fun showAnalysisProgress(progress: Int) {
+        AnalysisService.updateProgress(app, progress, "Analyzing...")
+    }
+
+    @JavascriptInterface
+    fun showAnalysisComplete(videoId: String) {
+        AnalysisService.stop(app)
+    }
+
+    @JavascriptInterface
+    fun cancelNotification() {
+        AnalysisService.stop(app)
     }
 }
