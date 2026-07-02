@@ -1,7 +1,5 @@
 package com.wonderwall.app
 
-package com.wonderwall.app
-
 import android.app.Application
 import android.webkit.WebView
 import com.wonderwall.app.data.AppDatabase
