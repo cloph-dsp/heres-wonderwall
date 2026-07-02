@@ -6,18 +6,27 @@ import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.webkit.ValueCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
@@ -29,14 +38,17 @@ import com.wonderwall.app.data.AppDatabase
 import com.wonderwall.app.data.CachedAnalysis
 import com.wonderwall.app.ui.screens.MyChordsScreen
 import com.wonderwall.app.ui.screens.SettingsScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var webView: WonderwallWebView
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var mediaRecorder: MediaRecorder? = null
+    private var recordingFile: File? = null
 
     // File picker (for audio upload)
     private val audioPickerLauncher = registerForActivityResult(
@@ -45,31 +57,21 @@ class MainActivity : ComponentActivity() {
         if (uri != null) {
             filePathCallback?.onReceiveValue(arrayOf(uri))
             filePathCallback = null
-            // Notify web JS
             webView.evaluateJavascript(
                 "window.__audioPicked?.(${toJson(uri)});", null
             )
         }
     }
 
-    // Audio recording
-    private val recordLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("audio/mp4")
-    ) { uri: Uri? ->
-        if (uri != null) startRecording(uri)
-    }
-
     // Permissions
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> /* retry the pending action */ }
+    ) { _ -> }
 
     private val db: AppDatabase get() = (application as WonderwallApp).database
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Handle incoming audio share intents
         handleIncomingIntent(intent)
 
         setContent {
@@ -77,42 +79,72 @@ class MainActivity : ComponentActivity() {
             var isLoading by remember { mutableStateOf(true) }
             var errorMsg by remember { mutableStateOf<String?>(null) }
             val currentRoute by navController.currentBackStackEntryAsState()
-            val isHome = currentRoute?.destination?.route == "web"
+            val route = currentRoute?.destination?.route ?: "web"
+
+            var isRecording by remember { mutableStateOf(false) }
+            var recordingElapsed by remember { mutableStateOf(0L) }
 
             val bridge = remember {
                 AndroidBridge(
                     app = application,
                     onPickAudio = ::pickAudio,
-                    onRecordAudio = ::requestRecord,
+                    onStartRecording = {
+                        if (isRecording) return@AndroidBridge
+                        isRecording = true
+                        recordingElapsed = 0
+                        startCachingRecording()
+                    },
+                    onStopRecording = { uriJson ->
+                        isRecording = false
+                        recordingElapsed = 0
+                        val uri = Uri.parse(uriJson)
+                        webView.post {
+                            webView.evaluateJavascript(
+                                "window.__audioRecorded?.(${toJson(uri)});", null
+                            )
+                        }
+                    },
                     onCacheAnalysis = { json -> cacheAnalysis(json) },
                     onShare = ::share,
                     onClearCache = { lifecycleScope.launch { db.analysisDao().deleteAll() } },
                 )
             }
 
+            // Recording timer
+            if (isRecording) {
+                LaunchedEffect(Unit) {
+                    val startMs = SystemClock.elapsedRealtime()
+                    while (true) {
+                        recordingElapsed = SystemClock.elapsedRealtime() - startMs
+                        delay(100)
+                        if (!isRecording) break
+                    }
+                }
+            }
+
             Scaffold(
                 bottomBar = {
-                    if (isHome) {
-                        NavigationBar {
-                            NavigationBarItem(
-                                selected = true,
-                                onClick = { },
-                                icon = { Text("🏠") },
-                                label = { Text("Home") }
-                            )
-                            NavigationBarItem(
-                                selected = false,
-                                onClick = { navController.navigate("my-chords") },
-                                icon = { Text("♪") },
-                                label = { Text("My Chords") }
-                            )
-                            NavigationBarItem(
-                                selected = false,
-                                onClick = { navController.navigate("settings") },
-                                icon = { Text("⚙") },
-                                label = { Text("Settings") }
-                            )
-                        }
+                    NavigationBar {
+                        NavigationBarItem(
+                            selected = route == "web",
+                            onClick = {
+                                if (route != "web") navController.navigate("web") { popUpTo("web") { inclusive = true } }
+                            },
+                            icon = { Text("🏠", fontSize = 18.sp) },
+                            label = { Text("Home") }
+                        )
+                        NavigationBarItem(
+                            selected = route == "my-chords",
+                            onClick = { navController.navigate("my-chords") },
+                            icon = { Text("♪", fontSize = 18.sp) },
+                            label = { Text("My Chords") }
+                        )
+                        NavigationBarItem(
+                            selected = route == "settings",
+                            onClick = { navController.navigate("settings") },
+                            icon = { Text("⚙", fontSize = 18.sp) },
+                            label = { Text("Settings") }
+                        )
                     }
                 }
             ) { pad ->
@@ -159,6 +191,14 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
 
+                                // Recording overlay
+                                if (isRecording) {
+                                    RecordingOverlay(
+                                        elapsedMs = recordingElapsed,
+                                        onStop = { stopCachingRecording(bridge) }
+                                    )
+                                }
+
                                 errorMsg?.let { msg ->
                                     AlertDialog(
                                         onDismissRequest = { errorMsg = null },
@@ -179,9 +219,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("my-chords") {
                             MyChordsScreen(
-                                onOpenAnalysis = { videoId ->
-                                    navController.popBackStack()
-                                },
+                                onOpenAnalysis = { navController.popBackStack() },
                                 onBack = { navController.popBackStack() }
                             )
                         }
@@ -200,6 +238,69 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // -- Recording overlay composable -----------------------------------------
+
+    @Composable
+    private fun RecordingOverlay(elapsedMs: Long, onStop: () -> Unit) {
+        val sec = elapsedMs / 1000
+        val min = sec / 60
+        val timeStr = "%02d:%02d".format(min, sec % 60)
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            // semi-transparent backdrop
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0x99000000))
+            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(32.dp)
+            ) {
+                // Pulsing dot
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFEF5350))
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("🎤", fontSize = 28.sp)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "Recording",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    timeStr,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onStop,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350))
+                ) {
+                    Text("■  Stop", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIncomingIntent(intent)
@@ -210,7 +311,6 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("audio/") == true) {
             intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.let { uri ->
-                // Auto-upload: pass the URI to the web app
                 webView.post {
                     webView.evaluateJavascript(
                         "window.__audioPicked?.(${toJson(uri)});", null
@@ -226,37 +326,45 @@ class MainActivity : ComponentActivity() {
         audioPickerLauncher.launch("audio/*")
     }
 
-    // -- Audio recording ------------------------------------------------------
+    // -- Audio recording (cache-based, no SAF dialog) -------------------------
 
-    private fun requestRecord() {
+    private fun startCachingRecording() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED
         ) {
             permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
             return
         }
-        val filename = "recording_${System.currentTimeMillis()}.mp4"
-        recordLauncher.launch(filename)
-    }
+        val dir = File(cacheDir, "recordings").also { it.mkdirs() }
+        val file = File(dir, "recording_${System.currentTimeMillis()}.mp4")
+        recordingFile = file
 
-    private fun startRecording(uri: Uri) {
-        val resolver = contentResolver
-        val fd = resolver.openFileDescriptor(uri, "w") ?: return
         MediaRecorder().apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setOutputFile(fd.fileDescriptor)
+            setOutputFile(file.absolutePath)
             prepare()
             start()
             mediaRecorder = this
         }
     }
 
+    private fun stopCachingRecording(bridge: AndroidBridge) {
+        mediaRecorder?.apply {
+            try { stop() } catch (_: Exception) {}
+            release()
+        }
+        mediaRecorder = null
+        val file = recordingFile ?: return
+        if (!file.exists()) return
+        bridge.onStopRecording(Uri.fromFile(file).toString())
+    }
+
     override fun onPause() {
         super.onPause()
         mediaRecorder?.apply {
-            stop()
+            try { stop() } catch (_: Exception) {}
             release()
         }
         mediaRecorder = null
