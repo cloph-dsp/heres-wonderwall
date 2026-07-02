@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Here's Wonderwall</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#121212;--surface:#1e1e1e;--surface2:#2a2a2a;--primary:#bb86fc;--primary-dim:#9a6fd8;--text:#e1e1e1;--text2:#999;--error:#cf6679;--radius:12px}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;display:flex;flex-direction:column}
+header{padding:20px 20px 8px;display:flex;justify-content:space-between;align-items:center}
+header h1{font-size:20px;font-weight:600;color:var(--primary)}
+header .sub{font-size:11px;color:var(--text2);margin-top:2px}
+.btn-group{display:flex;gap:12px;padding:12px 20px 20px}
+.btn{flex:1;padding:14px;border:none;border-radius:var(--radius);font-size:15px;font-weight:600;cursor:pointer;transition:opacity .15s;display:flex;flex-direction:column;align-items:center;gap:4px}
+.btn:active{opacity:.7}
+.btn-primary{background:var(--primary);color:#000}
+.btn-secondary{background:var(--surface2);color:var(--text)}
+.btn .icon{font-size:24px}
+.btn .label{font-size:12px;font-weight:400;opacity:.8}
+.section{padding:8px 20px 4px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px}
+#results{flex:1;padding:8px 20px 80px}
+.result-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:10px}
+.result-card .title{font-size:16px;font-weight:600}
+.result-card .meta{font-size:12px;color:var(--text2);margin:6px 0}
+.result-card .chords{font-size:13px;font-family:monospace;color:var(--primary);margin-top:8px;line-height:1.6}
+.result-card .actions{display:flex;gap:8px;margin-top:12px}
+.result-card .actions button{flex:1;padding:8px;border:none;border-radius:8px;font-size:12px;cursor:pointer;background:var(--surface2);color:var(--text)}
+.result-card .actions button:active{opacity:.7}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;gap:12px}
+.empty-state .icon{font-size:48px;opacity:.3}
+.empty-state p{color:var(--text2);font-size:14px;line-height:1.5}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--surface2);display:flex;padding:8px 0;padding-bottom:env(safe-area-inset-bottom,8px)}
+.bottom-nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border:none;background:none;color:var(--text2);font-size:10px;cursor:pointer}
+.bottom-nav button.active{color:var(--primary)}
+.bottom-nav button .nav-icon{font-size:22px}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--primary);color:#000;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:500;opacity:0;transition:opacity .3s;z-index:99}
+.toast.show{opacity:1}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<header>
+<div>
+<h1>Here's Wonderwall</h1>
+<div class="sub">Chord Analyzer</div>
+</div>
+<div style="font-size:11px;color:var(--text2)" id="appStatus">standalone</div>
+</header>
+
+<div class="btn-group">
+<button class="btn btn-primary" onclick="pickAudio()">
+<span class="icon">🎵</span>
+<span class="label">Pick Audio File</span>
+</button>
+<button class="btn btn-secondary" onclick="recordAudio()">
+<span class="icon">🎤</span>
+<span class="label">Record Guitar</span>
+</button>
+</div>
+
+<div class="section" id="resultsLabel">Saved Analyses</div>
+<div id="results">
+<div class="empty-state" id="emptyState">
+<div class="icon">🎸</div>
+<p>No analyses yet.<br>Pick an audio file or record your guitar to get started.</p>
+</div>
+</div>
+
+<div class="bottom-nav">
+<button class="active" onclick="showTab('home')">
+<span class="nav-icon">🏠</span> Home
+</button>
+<button onclick="showTab('settings')">
+<span class="nav-icon">⚙️</span> Settings
+</button>
+</div>
+
+<div id="settingsTab" class="hidden" style="padding:20px">
+<h2 style="font-size:18px;margin-bottom:16px">Settings</h2>
+
+<div style="margin-bottom:20px">
+<label style="font-size:12px;color:var(--text2);display:block;margin-bottom:6px">Target URL</label>
+<input id="urlInput" type="url" value="https://chordmini.me"
+style="width:100%;padding:12px;border:1px solid var(--surface2);border-radius:8px;background:var(--surface);color:var(--text);font-size:14px">
+<button onclick="saveUrl()" class="btn btn-primary" style="margin-top:10px;padding:10px">Save URL</button>
+</div>
+
+<div style="margin-bottom:20px">
+<button onclick="openInWebView()" class="btn btn-secondary" style="width:100%;padding:12px">🌐 Open Target in WebView</button>
+</div>
+
+<div style="margin-bottom:20px">
+<button onclick="clearCache()" class="btn btn-secondary" style="width:100%;padding:12px">🗑️ Clear All Cached Analyses</button>
+</div>
+
+<div style="margin-top:30px;padding-top:20px;border-top:1px solid var(--surface2)">
+<p style="font-size:12px;color:var(--text2)">Here's Wonderwall v1.0.0</p>
+<p style="font-size:11px;color:var(--text2);margin-top:4px">Android WebView wrapper with native audio bridge.</p>
+</div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const bridge = window.AndroidBridge;
+const isApp = !!bridge;
+
+let analyses = loadLocal();
+
+document.getElementById('appStatus').textContent = isApp ? 'app mode' : 'browser preview';
+
+function pickAudio() {
+if (bridge) { bridge.pickAudio(); showToast('Opening file picker...'); }
+else { showToast('App mode only'); }
+}
+
+function recordAudio() {
+if (bridge) { bridge.recordAudio(60); showToast('Starting recording...'); }
+else { showToast('App mode only'); }
+}
+
+function showToast(msg) {
+const t = document.getElementById('toast');
+t.textContent = msg;
+t.classList.add('show');
+setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function loadLocal() {
+try {
+const raw = localStorage.getItem('analyses');
+return raw ? JSON.parse(raw) : [];
+} catch(e) { return []; }
+}
+
+function saveLocal(arr) {
+localStorage.setItem('analyses', JSON.stringify(arr));
+}
+
+function render() {
+const container = document.getElementById('results');
+const empty = document.getElementById('emptyState');
+const label = document.getElementById('resultsLabel');
+
+if (analyses.length === 0) {
+container.innerHTML = '';
+container.appendChild(empty);
+empty.classList.remove('hidden');
+label.textContent = 'Saved Analyses';
+return;
+}
+
+empty.classList.add('hidden');
+label.textContent = 'Saved Analyses (' + analyses.length + ')';
+
+container.innerHTML = analyses.map(a => `
+<div class="result-card">
+<div class="title">${escHtml(a.title || 'Untitled')}</div>
+${a.artist ? '<div class="meta">' + escHtml(a.artist) + '</div>' : ''}
+<div class="meta">${escHtml(a.key || '?')} · ${a.bpm || '?'} BPM · ${new Date(a.cachedAt).toLocaleDateString()}</div>
+${a.chords ? '<div class="chords">' + escHtml(a.chords) + '</div>' : ''}
+<div class="actions">
+<button onclick="shareAnalysis('${escHtml(a.videoId)}')">📤 Share</button>
+<button onclick="deleteAnalysis('${escHtml(a.videoId)}')">🗑️ Delete</button>
+</div>
+</div>
+`).join('');
+}
+
+function escHtml(s) {
+const d = document.createElement('div');
+d.textContent = s;
+return d.innerHTML;
+}
+
+function shareAnalysis(id) {
+const a = analyses.find(x => x.videoId === id);
+if (!a) return;
+const text = a.title + (a.artist ? ' - ' + a.artist : '') + '\n' +
+'Key: ' + a.key + ' · ' + a.bpm + ' BPM\n' +
+'Chords: ' + (a.chords || 'N/A');
+if (bridge) { bridge.shareText(text, a.title); }
+else { showToast('Share: ' + text.substring(0, 40) + '...'); }
+}
+
+function deleteAnalysis(id) {
+analyses = analyses.filter(x => x.videoId !== id);
+saveLocal(analyses);
+render();
+if (bridge) showToast('Deleted');
+}
+
+function clearCache() {
+if (bridge && confirm('Delete all cached analyses?')) {
+// Bridge could call native clear too
+}
+analyses = [];
+saveLocal(analyses);
+render();
+showToast('Cache cleared');
+}
+
+function saveUrl() {
+const url = document.getElementById('urlInput').value.trim();
+if (!url) return showToast('Enter a valid URL');
+localStorage.setItem('targetUrl', url);
+showToast('URL saved');
+}
+
+function openInWebView() {
+const url = document.getElementById('urlInput').value.trim() || 'https://chordmini.me';
+if (bridge) {
+bridge.shareText('Open URL: ' + url, 'Navigate');
+} else {
+window.open(url, '_blank');
+}
+}
+
+function showTab(tab) {
+document.querySelectorAll('.bottom-nav button').forEach(b => b.classList.remove('active'));
+document.getElementById('results').classList.toggle('hidden', tab !== 'home');
+document.getElementById('resultsLabel').classList.toggle('hidden', tab !== 'home');
+document.getElementById('settingsTab').classList.toggle('hidden', tab !== 'settings');
+document.querySelector('.btn-group').classList.toggle('hidden', tab !== 'home');
+if (tab === 'settings') {
+const saved = localStorage.getItem('targetUrl');
+if (saved) document.getElementById('urlInput').value = saved;
+}
+document.querySelector(`.bottom-nav button:nth-child(${tab==='home'?1:2})`).classList.add('active');
+}
+
+// Expose saveAnalysis for AndroidBridge calls
+window.__saveAnalysis = function(json) {
+analyses.push(json);
+saveLocal(analyses);
+render();
+showToast('Analysis saved!');
+};
+
+// Listen for JS bridge calls from native
+document.addEventListener('DOMContentLoaded', () => {
+render();
+const savedUrl = localStorage.getItem('targetUrl');
+if (savedUrl) document.getElementById('urlInput').value = savedUrl;
+});
+
+// Pump existing analyses from native DB
+if (bridge) {
+// Native will inject cached analyses via evaluateJavascript on page load
+}
+</script>
+</body>
+</html>

@@ -11,15 +11,15 @@ import android.webkit.ValueCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.navigation.NavHost
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -27,7 +27,7 @@ import com.wonderwall.app.bridge.AndroidBridge
 import com.wonderwall.app.data.AppDatabase
 import com.wonderwall.app.data.CachedAnalysis
 import com.wonderwall.app.ui.screens.MyChordsScreen
-import androidx.lifecycle.lifecycleScope
+import com.wonderwall.app.ui.screens.SettingsScreen
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
@@ -73,6 +73,11 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val navController = rememberNavController()
+            var isLoading by remember { mutableStateOf(true) }
+            var errorMsg by remember { mutableStateOf<String?>(null) }
+            val currentRoute by navController.currentBackStackEntryAsState()
+            val isHome = currentRoute?.destination?.route == "web"
+
             val bridge = remember {
                 AndroidBridge(
                     app = application,
@@ -80,41 +85,115 @@ class MainActivity : ComponentActivity() {
                     onRecordAudio = ::requestRecord,
                     onCacheAnalysis = { json -> cacheAnalysis(json) },
                     onShare = ::share,
+                    onClearCache = { lifecycleScope.launch { db.analysisDao().deleteAll() } },
                 )
             }
 
-            NavHost(navController, startDestination = "web") {
-                composable("web") {
-                    Scaffold(
-                        floatingActionButton = {
-                            FloatingActionButton(
+            Scaffold(
+                bottomBar = {
+                    if (isHome) {
+                        NavigationBar {
+                            NavigationBarItem(
+                                selected = true,
+                                onClick = { },
+                                icon = { Text("🏠") },
+                                label = { Text("Home") }
+                            )
+                            NavigationBarItem(
+                                selected = false,
                                 onClick = { navController.navigate("my-chords") },
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            ) {
-                                Text("♪", style = MaterialTheme.typography.titleLarge)
-                            }
+                                icon = { Text("♪") },
+                                label = { Text("My Chords") }
+                            )
+                            NavigationBarItem(
+                                selected = false,
+                                onClick = { navController.navigate("settings") },
+                                icon = { Text("⚙") },
+                                label = { Text("Settings") }
+                            )
                         }
-                    ) { pad ->
-                        AndroidView(
-                            factory = { ctx ->
-                                WonderwallWebView(ctx).also { wv ->
-                                    webView = wv
-                                    wv.addJavascriptInterface(bridge, "AndroidBridge")
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(pad),
-                        )
                     }
                 }
-                composable("my-chords") {
-                    MyChordsScreen(
-                        onOpenAnalysis = { videoId ->
-                            webView.loadUrl(WonderwallWebView.targetUrl + "/analyze/" + videoId)
-                            navController.popBackStack()
+            ) { pad ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(pad)
+                ) {
+                    NavHost(navController, startDestination = "web") {
+                        composable("web") {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AndroidView(
+                                    factory = { ctx ->
+                                        WonderwallWebView(ctx).also { wv ->
+                                            webView = wv
+                                            wv.addJavascriptInterface(bridge, "AndroidBridge")
+                                            wv.onLoadingChanged = { loading ->
+                                                isLoading = loading
+                                            }
+                                            wv.onError = { desc ->
+                                                errorMsg = desc
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+
+                                if (isLoading) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            CircularProgressIndicator(
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(
+                                                "Loading...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                errorMsg?.let { msg ->
+                                    AlertDialog(
+                                        onDismissRequest = { errorMsg = null },
+                                        title = { Text("Connection Error") },
+                                        text = { Text("Could not load the page.\n\n$msg\n\nTap Retry to try again.") },
+                                        confirmButton = {
+                                            TextButton(onClick = {
+                                                errorMsg = null
+                                                webView.loadLocalIndex()
+                                            }) { Text("Retry") }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = { errorMsg = null }) { Text("Dismiss") }
+                                        }
+                                    )
+                                }
+                            }
                         }
-                    )
+                        composable("my-chords") {
+                            MyChordsScreen(
+                                onOpenAnalysis = { videoId ->
+                                    navController.popBackStack()
+                                },
+                                onBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("settings") {
+                            SettingsScreen(
+                                onBack = { navController.popBackStack() },
+                                onOpenTarget = {
+                                    webView.loadTargetUrl()
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }

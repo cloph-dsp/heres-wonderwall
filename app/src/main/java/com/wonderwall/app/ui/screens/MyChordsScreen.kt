@@ -18,6 +18,7 @@ import java.util.*
 @Composable
 fun MyChordsScreen(
     onOpenAnalysis: (videoId: String) -> Unit,
+    onBack: () -> Unit = {},
     viewModel: MyChordsViewModel = viewModel(),
 ) {
     val analyses by viewModel.analyses.collectAsState()
@@ -26,6 +27,9 @@ fun MyChordsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("My Chords") },
+                navigationIcon = {
+                    TextButton(onClick = onBack) { Text("← Back") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )

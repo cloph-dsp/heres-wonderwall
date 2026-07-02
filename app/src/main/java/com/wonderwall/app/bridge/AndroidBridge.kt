@@ -17,6 +17,7 @@ class AndroidBridge(
     private val onRecordAudio: () -> Unit,
     private val onCacheAnalysis: (JSONObject) -> Unit,
     private val onShare: (String, String) -> Unit,
+    private val onClearCache: () -> Unit = {},
 ) {
     // -- Audio ----------------------------------------------------------------
 
@@ -60,6 +61,16 @@ class AndroidBridge(
     @JavascriptInterface
     fun shareImage(base64Png: String, title: String) {
         onShare(base64Png, title)
+    }
+
+    @JavascriptInterface
+    fun clearAllAnalyses(): Boolean {
+        return try {
+            onClearCache()
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     // -- Notifications --------------------------------------------------------

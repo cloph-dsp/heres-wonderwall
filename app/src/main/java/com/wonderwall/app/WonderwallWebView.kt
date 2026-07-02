@@ -8,14 +8,18 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import java.io.InputStreamReader
 
 @SuppressLint("SetJavaScriptEnabled")
 class WonderwallWebView(context: Context) : WebView(context) {
 
     companion object {
-        // Default URL — user can set their own in settings
         var targetUrl: String = "https://chordmini.me"
+        private const val LOCAL_INDEX = "file:///android_asset/www/index.html"
     }
+
+    var onLoadingChanged: ((isLoading: Boolean) -> Unit)? = null
+    var onError: ((description: String) -> Unit)? = null
 
     init {
         layoutParams = ViewGroup.LayoutParams(
@@ -35,12 +39,24 @@ class WonderwallWebView(context: Context) : WebView(context) {
         webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                // Could show loading indicator here
+                onLoadingChanged?.invoke(true)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                onLoadingChanged?.invoke(false)
                 injectBridgeScript()
+            }
+
+            override fun onReceivedError(
+                view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?
+            ) {
+                super.onReceivedError(view, request, error)
+                val desc = error?.description?.toString() ?: "Unknown error"
+                // Only report main-frame errors (not iframe/images)
+                if (request?.isForMainFrame == true) {
+                    onError?.invoke(desc)
+                }
             }
 
             override fun shouldOverrideUrlLoading(
@@ -48,16 +64,30 @@ class WonderwallWebView(context: Context) : WebView(context) {
             ): Boolean = false
         }
 
-        webChromeClient = WebChromeClient() // handles progress, permissions, etc.
+        webChromeClient = WebChromeClient()
 
+        loadLocalIndex()
+    }
+
+    fun loadLocalIndex() {
+        loadUrl(LOCAL_INDEX)
+    }
+
+    fun loadTargetUrl() {
         loadUrl(targetUrl)
     }
 
-    /**
-     * Injects a tiny JS shim so the web app can detect it's inside the Android wrapper.
-     * The real bridge methods come from [AndroidBridge] via @JavascriptInterface.
-     */
+    fun readAssetFile(name: String): String? {
+        return try {
+            val `is` = context.assets.open(name)
+            `is`.bufferedReader().use { it.readText() }
+        } catch (_: Exception) { null }
+    }
+
     private fun injectBridgeScript() {
+        val url = url ?: return
+        // Only inject on local HTML page — remote pages get nothing
+        if (!url.startsWith("file:///android_asset")) return
         evaluateJavascript("""
             (function() {
                 if (window.AndroidBridge || window.__wonderwall) return;
